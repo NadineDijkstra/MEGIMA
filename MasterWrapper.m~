@@ -1,0 +1,156 @@
+% Walkthrough of the steps that led to the results in the paper
+% 'Differential temporal dynamics of visual imagery and perception' by N.
+% Dijkstra, P. Mostert, F. de Lange, S.E. Bosch & M.A.J. van Gerven
+%
+% For clarity, only from after preprocessing and preparation of source
+% info, for full details see paper
+
+%% Some parameters and settings
+
+addpath('/vol/ccnlab-scratch1/naddij/shareIMAMEG/Analyses')
+root     = '/vol/ccnlab-scratch1/naddij/shareIMAMEG/Data';
+analyses = '/vol/ccnlab-scratch1/naddij/shareIMAMEG/Analyses';
+subjects = {'S01','S03','S04','S06','S07','S08','S09','S11','S14','S15','S16','S17','S18','S19','S20','S21','S22','S23','S24','S25','S26','S27','S28','S29','S30'};
+nSubjects = length(subjects);
+
+for sub = 1:nSubjects
+    
+    % get the subject info
+    subjectID              = subjects{sub}';  
+    subjectDir             = fullfile(root,subjectID);
+    dataDir                = fullfile(subjectDir,'CleanData');
+    
+    %% Multivariate analyses   
+    addpath(fullfile(analyses,'MultivariateAnalyses'))
+    
+    cfg                    = [];
+    cfg.root               = root;
+    cfg.nFold              = 5; % number of folds for cross-validation
+    cfg.channels           = 'MEG';
+    
+    cfg.decfg.gamma        = 0.05;
+    cfg.decfg.samplemethod = 'downsample'; % to balance trial numbers
+    cfg.decfg.nMeanS       = 9; % average over x samples, for smoothing
+    
+    % calculate the temporal generalization matrices
+    cfg.outputDir          = fullfile(subjectDir,'DecodingTG');
+    
+    % for perception
+    cfg.dataFiles{1}       = fullfile(dataDir,'dataFP'); % training data
+    cfg.dataFiles{2}       = fullfile(dataDir,'dataFP'); % test data
+    
+    cfg.conIdx{1,1}        = [101:108,201:208]; % the markers for each class
+    cfg.conIdx{1,2}        = [109:116,209:216];
+    cfg.conIdx{2,1}        = cfg.conIdx{1,1};
+    cfg.conIdx{2,2}        = cfg.conIdx{1,2};
+    
+    DecodingCross(cfg)    
+    
+    % for imagery
+    cfg.dataFiles{1}       = fullfile(dataDir,'dataIM');
+    cfg.dataFiles{2}       = fullfile(dataDir,'dataIM'); % test data
+    
+    cfg.conIdx{1,1}        = [121:128,221:228];
+    cfg.conIdx{1,2}        = [129:136,229:236];
+    cfg.conIdx{2,1}        = cfg.conIdx{1,1};
+    cfg.conIdx{2,2}        = cfg.conIdx{1,2};
+    
+    DecodingCross(cfg)
+    
+    
+    % calculate the cross-decoding matrices
+    cfg.outputDir          = fullfile(subjectDir,'DecodingCROSS');
+    
+    % form perception to imagery    
+    cfg.dataFiles{1}       = fullfile(dataDir,'dataFP'); % training data
+    cfg.dataFiles{2}       = fullfile(dataDir,'dataIM'); % test data
+    
+    cfg.conIdx{1,1}        = [101:108,201:208];
+    cfg.conIdx{1,2}        = [109:116,209:216];
+    cfg.conIdx{2,1}        = [121:128,221:228];
+    cfg.conIdx{2,2}        = [129:136,229:236];
+    
+    DecodingCross(cfg)
+    
+    % from imagery to perception 
+    cfg.dataFiles{1}       = fullfile(dataDir,'dataIM'); % training data
+    cfg.dataFiles{2}       = fullfile(dataDir,'dataFP'); % test data
+    
+    cfg.conIdx{1,1}        = [121:128,221:228];
+    cfg.conIdx{1,2}        = [129:136,229:236];
+    cfg.conIdx{2,1}        = [101:108,201:208];
+    cfg.conIdx{2,2}        = [109:116,209:216];
+    
+    DecodingCross(cfg)    
+    
+    %% Vividness correlation
+    % takes the output from the classifier and correlates it with vividness
+    cfg          = [];
+    cfg.dataDir  = subjectDir;
+    cfg.dataName = '/DecodingCROSS/dataFP to dataIM.mat';
+    DecoderVividnessOutput(cfg)
+    
+    %% Source reconstruction
+    addpath(fullfile(analyses,'SourceReconstruction'))    
+    
+    % calculate source activity difference ERF
+    cfg             = [];
+    cfg.movie       = 'no';
+    cfg.dataDir     = dataDir;
+    cfg.output      = fullfile(subjectDir,'SourceReconstruction');
+    cfg.subjectID   = subjectID;
+    cfg.time        = [];%[0 1];
+    cfg.lpfilter    = 'yes';
+    cfg.dataName    = 'dataIM';
+    cfg.conIdx{1}   = [101:108,121:128,221:228]; cfg.conIdx{2} = [109:116,129:136,229:236];
+    SourcerecConDiff(cfg)
+    
+    cfg.dataName    = 'dataFP';
+    cfg.time        = [];
+    SourcerecConDiff(cfg)
+    
+    % seperate grid points into atlas regions for later averaging
+    cfg             = [];
+    cfg.plot        = 'no';
+    cfg.diff        = 'yes'; % look at the difference or average over conditions
+    cfg.dataSet     = 'dataIM';
+    cfg.subjectID   = subjectID;
+    cfg.sourceRecDir = fullfile(subjectDir,'SourceReconstruction');
+    cfg.root        = root;
+    SourcerecAtlas(cfg)
+    
+    cfg.dataSet     = 'dataFP';    
+    SourcerecAtlas(cfg)       
+    
+end
+
+%% Group analyses decoding results
+
+% perception temporal generalization
+cfg.dataName = 'dataFP';
+cfg.dirName  = 'DecodingTG';
+cfg.root     = root;
+cfg.nPerm    = 1000; % number of permutations
+cfg.alpha    = 0.05;
+cfg.subjects = subjects;
+load(fullfile(root,subjects{1},cfg.dirName,cfg.dataName),'time') % steal a time variabel
+cfg.time     = time;
+
+DecodingGA(cfg); 
+
+% imagery temporal generalization
+cfg.dataName = 'dataFP';
+load(fullfile(root,subjects{1},cfg.dirName,cfg.dataName),'time') % steal a time variabel
+cfg.time     = time;
+
+DecodingGA(cfg);
+
+% cross-decoding from perception to imagery
+
+
+% cross-decoding from imagery to perception
+
+
+%% Make figures
+
+
